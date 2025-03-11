@@ -19,6 +19,12 @@ class Core:
         self.matched2: typing.Union[npt.NDArray, None] = None
         self.main_window: QtWidgets.QMainWindow = main_window
 
+        # akaze settings
+        self.pad = 25
+        self.threshold = 0.01
+        self.n_octaves = 1
+        self.n_octaveLayers = 1
+
     def update_plot(self, axes, im):
         axes.cla()
         if im is not None:
@@ -40,13 +46,47 @@ class Core:
         self.update_to_merge_plot()
         self.update_merged_plot()
 
+    def remove_and_shift_padded_keypoints(self, kpts, desc, rows: int, columns: int):
+        selected_keypoints = list()
+        to_select = list()
+        for keypoint in kpts:
+            new_pt = (keypoint.pt[0] - self.pad, keypoint.pt[1] - self.pad)
+            keypoint.pt = new_pt
+            if (0 <= new_pt[0] < columns) and (0 <= new_pt[1] < rows):
+                selected_keypoints.append(keypoint)
+                to_select.append(True)
+            else:
+                print(new_pt, rows, columns)
+                to_select.append(False)
+        selected_keypoints = tuple(selected_keypoints)
+        return selected_keypoints, desc[to_select]
+
     def compute_matches_and_affine_transformation(self):
         if (self.im_initial is None) or (self.im_to_merge is None):
             return
 
-        akaze = cv2.AKAZE_create()
-        kpts1, desc1 = akaze.detectAndCompute(self.im_initial, None)
-        kpts2, desc2 = akaze.detectAndCompute(self.im_to_merge, None)
+        akaze = cv2.AKAZE_create(threshold=self.threshold, nOctaves=self.n_octaves, nOctaveLayers=self.n_octaveLayers)
+        if self.pad > 0:
+            im_initial_pad = np.pad(self.im_initial, ((self.pad, self.pad), (self.pad, self.pad), (0, 0)), mode='constant', constant_values=0)
+            im_to_merge_pad = np.pad(self.im_to_merge, ((self.pad, self.pad), (self.pad, self.pad), (0, 0)), mode='constant', constant_values=0)
+        else:
+            im_initial_pad = self.im_initial
+            im_to_merge_pad = self.im_to_merge
+        kpts1, desc1 = akaze.detectAndCompute(im_initial_pad, None)
+        kpts2, desc2 = akaze.detectAndCompute(im_to_merge_pad, None)
+
+        if len(kpts1) == 0:
+            print("no keypoints detected in im_initial")
+            return
+
+        if len(kpts2) == 0:
+            print("no keypoints detected in im_to_merge")
+            return
+
+        # remove features in the pad area and shift the keypoints
+        if self.pad > 0:
+            kpts1, desc1 = self.remove_and_shift_padded_keypoints(kpts1, desc1, self.im_initial.shape[0], self.im_initial.shape[1])
+            kpts2, desc2 = self.remove_and_shift_padded_keypoints(kpts2, desc2, self.im_to_merge.shape[0], self.im_to_merge.shape[1])
 
         matcher = cv2.DescriptorMatcher_create(cv2.DescriptorMatcher_BRUTEFORCE_HAMMING)
         nn_matches = matcher.knnMatch(desc1, desc2, 2)
