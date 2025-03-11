@@ -24,6 +24,12 @@ class Core:
         self.threshold = 0.01
         self.n_octaves = 1
         self.n_octaveLayers = 1
+        self.min_selection_window_area = 100  # if the volume of a selection window is less than this is is ignored
+
+        #plotted points
+        self.im_initial_plot_points = None
+        self.im_to_merge_plot_points = None
+        self.plot_point_lines = list()
 
     def update_plot(self, axes, im):
         axes.cla()
@@ -33,10 +39,14 @@ class Core:
         self.canvas.draw()
 
     def update_initial_plot(self):
+        self.clear_drawn_matches()
         self.update_plot(self.canvas.axes_initial, self.im_initial)
+        self.canvas.set_rectangle_selector_initial()
 
     def update_to_merge_plot(self):
+        self.clear_drawn_matches()
         self.update_plot(self.canvas.axes_to_merge, self.im_to_merge)
+        self.canvas.set_rectangle_selector_to_merge()
 
     def update_merged_plot(self):
         self.update_plot(self.canvas.axes_merged, self.im_merged)
@@ -61,11 +71,22 @@ class Core:
         selected_keypoints = tuple(selected_keypoints)
         return selected_keypoints, desc[to_select]
 
+    def can_use_selection_rectangle(self, extents):
+        dx = np.abs(extents[0] - extents[1])
+        dy = np.abs(extents[2] - extents[3])
+        area = np.sqrt(dx**2 + dy**2)
+        return area >= self.min_selection_window_area
+
     def compute_matches_and_affine_transformation(self):
         if (self.im_initial is None) or (self.im_to_merge is None):
             return
 
         akaze = cv2.AKAZE_create(threshold=self.threshold, nOctaves=self.n_octaves, nOctaveLayers=self.n_octaveLayers)
+
+        im_initial_use_rect = self.can_use_selection_rectangle(self.canvas.rs_initial.extents)
+        im_to_merge_use_rect = self.can_use_selection_rectangle(self.canvas.rs_to_merge.extents)
+        print(im_initial_use_rect, im_to_merge_use_rect)
+
         if self.pad > 0:
             im_initial_pad = np.pad(self.im_initial, ((self.pad, self.pad), (self.pad, self.pad), (0, 0)), mode='constant', constant_values=0)
             im_to_merge_pad = np.pad(self.im_to_merge, ((self.pad, self.pad), (self.pad, self.pad), (0, 0)), mode='constant', constant_values=0)
@@ -112,19 +133,37 @@ class Core:
         print("number of matches = "+str(len(self.matched1)))
         print("affine transformation = "+str(self.affine))
 
+    def clear_drawn_matches(self):
+        if self.im_initial_plot_points is not None:
+            self.im_initial_plot_points[0].remove()
+        if self.im_to_merge_plot_points is not None:
+            self.im_to_merge_plot_points[0].remove()
+
+        if len(self.plot_point_lines) > 0:
+            for art in self.plot_point_lines:
+                art.remove()
+
+        self.plot_point_lines = list()
+        self.im_initial_plot_points = None
+        self.im_to_merge_plot_points = None
+
     def draw_matches(self):
         if len(self.matched1) == 0:
             return
 
-        self.canvas.axes_initial.plot(self.matched1[:, 0], self.matched1[:, 1], "*")
-        self.canvas.axes_to_merge.plot(self.matched2[:, 0], self.matched2[:, 1], "*")
+        self.clear_drawn_matches()
 
+        self.im_initial_plot_points = self.canvas.axes_initial.plot(self.matched1[:, 0], self.matched1[:, 1], "*")
+        self.im_to_merge_plot_points = self.canvas.axes_to_merge.plot(self.matched2[:, 0], self.matched2[:, 1], "*")
+
+        self.plot_point_lines = list()
         for i in range(len(self.matched1)):
             xy_a = (self.matched1[i, 0], self.matched1[i, 1])
             xy_b = (self.matched2[i, 0], self.matched2[i, 1])
             con1 = ConnectionPatch(xyA=xy_a, xyB=xy_b, coordsA="data", coordsB="data",
                                    axesA=self.canvas.axes_initial, axesB=self.canvas.axes_to_merge, color="blue")
-            self.canvas.axes_to_merge.add_artist(con1)
+            con_artist = self.canvas.axes_to_merge.add_artist(con1)
+            self.plot_point_lines.append(con_artist)
 
         self.canvas.fig.tight_layout()
         self.canvas.draw()
@@ -166,6 +205,7 @@ class Core:
         self.matched1: typing.Union[npt.NDArray, None] = None
         self.matched2: typing.Union[npt.NDArray, None] = None
         self.load_initial_image(file_path)
+        self.clear_drawn_matches()
         self.update_all_plots()
 
 
