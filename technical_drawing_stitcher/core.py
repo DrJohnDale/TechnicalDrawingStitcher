@@ -218,10 +218,11 @@ class Core:
             return
         progress_bar.setValue(1)
         im_merged_warped, im_to_merge_warped = warpAffinePadded(self.im_to_merge, self.im_initial, self.affine)
+        im_merged_warped_black, im_to_merge_warped_black = warpAffinePadded(np.ones_like(self.im_to_merge), np.ones_like(self.im_initial), self.affine)  # this is used to determine the image locations in the expanded images
         progress_bar.setValue(2)
-        is_not_black_im_merged = cv2.cvtColor(im_merged_warped, cv2.COLOR_RGB2GRAY) > 0
+        is_not_black_im_merged = cv2.cvtColor(im_merged_warped_black, cv2.COLOR_RGB2GRAY) > 0
         progress_bar.setValue(3)
-        is_not_black_im_to_merge_warped = cv2.cvtColor(im_to_merge_warped, cv2.COLOR_RGB2GRAY) > 0
+        is_not_black_im_to_merge_warped = cv2.cvtColor(im_to_merge_warped_black, cv2.COLOR_RGB2GRAY) > 0
         progress_bar.setValue(4)
         use_im_merged_warped = np.logical_and(np.logical_xor(is_not_black_im_to_merge_warped, is_not_black_im_merged), is_not_black_im_merged)
         progress_bar.setValue(5)
@@ -248,6 +249,11 @@ class Core:
     def save_merged_image(self, file_path, progress_bar: QtWidgets.QProgressDialog):
         if len(file_path) == 0:
             return
+
+        if "." not in file_path:
+            print("error :file extension missing")
+            return
+
         progress_bar.setValue(1)
         cv2.imwrite(file_path, cv2.cvtColor(self.im_merged, cv2.COLOR_RGB2BGR))
         progress_bar.setValue(2)
